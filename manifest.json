@@ -5,5 +5,5 @@
   "author": "ct",
   "description": "Game interface",
   "category": "ui",
-  "depends": ["core>=1"]
+  "depends": ["visual_novel_core>=1"]
 }
