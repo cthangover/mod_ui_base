@@ -40,6 +40,9 @@ namespace Cthangover.Mods.Interface.Menu
 
             foreach (var entry in AppServices.Current.Menus.Buttons)
             {
+                if (entry.Visible != null && !SafeVisible(entry))
+                    continue;
+
                 if (!sections.TryGetValue(entry.Section ?? MenuButtonEntry.SectionMods, out var container)
                     && !sections.TryGetValue(MenuButtonEntry.SectionMods, out container))
                 {
@@ -62,6 +65,19 @@ namespace Cthangover.Mods.Interface.Menu
         /// carry a locale meta key into the host's translation map, so the host
         /// keeps them localized across language switches.
         /// </summary>
+        private static bool SafeVisible(MenuButtonEntry entry)
+        {
+            try
+            {
+                return entry.Visible();
+            }
+            catch (System.Exception ex)
+            {
+                GameLogger.Log("MENU_BUILDER", $"Visibility check of button '{entry.Id}' failed: {ex.Message}", LogLevel.Warning);
+                return true;
+            }
+        }
+
         public static void CollectLocaleKeys(Container container, Dictionary<Button, string> keys)
         {
             if (container == null || keys == null)
@@ -116,13 +132,14 @@ namespace Cthangover.Mods.Interface.Menu
         /// owns its lifetime and closes itself, or is replaced by another menu
         /// scene opening over it.
         /// </summary>
-        public static void OpenScene(Control menuRoot, string scenePath, string label = null)
+        /// <summary>Opens a mod scene as a full-rect overlay of the menu and returns it (null when it fails to build).</summary>
+        public static Node OpenScene(Control menuRoot, string scenePath, string label = null)
         {
             var node = new ModScenePrefab(scenePath).Instantiate();
             if (node == null)
             {
                 GameLogger.Log("MENU_BUILDER", $"Open '{label ?? scenePath}': scene '{scenePath}' failed to build", LogLevel.Error);
-                return;
+                return null;
             }
 
             menuRoot.AddChild(node);
@@ -135,6 +152,7 @@ namespace Cthangover.Mods.Interface.Menu
                 modWidget.EnsureConstructed();
 
             GameLogger.Log("MENU_BUILDER", $"Opened '{label ?? scenePath}' → {scenePath}");
+            return node;
         }
     }
 }
