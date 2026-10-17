@@ -89,29 +89,46 @@ namespace Cthangover.Mods.Interface.Tool
             return button;
         }
 
+        /// <summary>
+        /// Adds one "tools" toolbar button whose popup lists every visible
+        /// <see cref="IToolBoxButton"/>. Tools used to get a text button each,
+        /// which did not fit the 60×60 icon row and overlapped its icons; a
+        /// single icon keeps the HUD row uniform no matter how many tools are
+        /// installed. Nothing is added when no tool button is visible.
+        /// </summary>
         private void AddToolButtons(HBoxContainer container)
         {
             if (container == null)
                 return;
 
-            foreach (var buttonDef in ToolBoxButtonFactory.Instance.GetVisible())
+            var visible = new List<IToolBoxButton>(ToolBoxButtonFactory.Instance.GetVisible());
+            if (visible.Count == 0)
+                return;
+
+            visible.Sort((a, b) => string.Compare(
+                TranslationServer.Translate(a.LocaleKey), TranslationServer.Translate(b.LocaleKey),
+                System.StringComparison.CurrentCulture));
+
+            var btn = CreateToolbarButton(TranslationServer.Translate("tools/menu_title"), UIIconFactory.Instance.Get("tools"));
+            var menu = new PopupMenu { Theme = ToolTheme.Get() };
+            foreach (var buttonDef in visible)
+                menu.AddItem(TranslationServer.Translate(buttonDef.LocaleKey));
+            menu.IndexPressed += index => OpenTool(visible[(int)index].ToolId);
+            btn.AddChild(menu);
+            btn.Pressed += () =>
             {
-                var toolId = buttonDef.ToolId;
-                var title = TranslationServer.Translate(buttonDef.LocaleKey);
+                var rect = btn.GetGlobalRect();
+                menu.Position = new Vector2I((int)rect.Position.X, (int)rect.End.Y + UiTokens.Space1);
+                menu.Popup();
+            };
+            container.AddChild(btn);
+        }
 
-                Texture2D icon = null;
-                if (!string.IsNullOrEmpty(buttonDef.IconPath) && ResourceLoader.Exists(buttonDef.IconPath))
-                    icon = ResourceLoader.Load<Texture2D>(buttonDef.IconPath);
-
-                var btn = CreateToolbarButton(title, icon);
-                btn.Pressed += () =>
-                {
-                    var tool = ToolFactory.Instance.Get(toolId);
-                    if (tool != null)
-                        ToolWindow.ShowWindow(tool.CreateWindow());
-                };
-                container.AddChild(btn);
-            }
+        private static void OpenTool(string toolId)
+        {
+            var tool = ToolFactory.Instance.Get(toolId);
+            if (tool != null)
+                ToolWindow.ShowWindow(tool.CreateWindow());
         }
 
         /// <summary>
