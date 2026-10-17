@@ -8,23 +8,34 @@ using Cthangover.Core.UI.Tool;
 namespace Cthangover.Mods.Interface.Tool
 {
     /// <summary>
-    /// Base for tool popup windows with dirty-state tracking and custom borderless
-    /// chrome (title bar with minimize/maximize/close, drag-to-move, edge resize).
-    /// Subclasses build their UI in the constructor exactly as before — the chrome
-    /// is applied transparently by <see cref="SetupChrome"/> after construction.
+    /// Base for developer tool windows: borderless chrome that follows the UI
+    /// style guide (title left in the header, ✕ on the right, drag-to-move,
+    /// double-click/□ to maximize, edge resize), a status bar, dirty-state
+    /// tracking and keyboard shortcuts.
+    /// <para/>
+    /// Subclasses build their UI in the constructor and add it as direct
+    /// children; <see cref="SetupChrome"/> (run by <see cref="Open{T}"/> and
+    /// <see cref="ShowWindow"/>) later moves those children into the content
+    /// area between the header and the status bar. Status and hint text may be
+    /// set before the chrome exists — it is buffered and shown once built.
+    /// <para/>
+    /// Tool windows use <see cref="ToolTheme"/>, a denser copy of the game
+    /// theme: same tokens, smaller paddings, so editor toolbars fit.
+    /// <para/>
+    /// Shortcuts: Ctrl+S calls <see cref="OnSaveShortcut"/> even while a text
+    /// field has focus (checked in <c>_Input</c>, before the GUI); every other
+    /// key reaches <see cref="HandleKey"/> only if no focused control consumed
+    /// it (<c>_UnhandledInput</c>), so Delete in a text field never deletes a
+    /// selected object.
     /// </summary>
     public abstract partial class ToolWindow : Window
     {
-        // ── existing fields ──────────────────────────────────────────
-
         /// <summary>
         /// Whether the window has unsaved changes. When <c>true</c>, the title bar shows a "*" prefix
-        /// and <see cref="HandleCloseRequested"/> prompts for confirmation before closing.
+        /// and closing asks for confirmation first.
         /// </summary>
         protected bool _dirty;
-        private string _baseTitle;
-
-        // ── chrome fields ───────────────────────────────────────────
+        private readonly string _baseTitle;
 
         private bool _chromeBuilt;
 
@@ -35,13 +46,16 @@ namespace Cthangover.Mods.Interface.Tool
         private Label _titleLabel;
         private Button _maximizeBtn;
         private HBoxContainer _titleBar;
+        private Label _statusLabel;
+        private Label _hintLabel;
+        private string _pendingStatus = string.Empty;
+        private ToolStatusKind _pendingStatusKind;
+        private string _pendingHint = string.Empty;
 
-        // drag
         private bool _draggingTitle;
         private Vector2 _titleDragMouseStart;
         private Vector2I _titleDragWindowStart;
 
-        // resize
         private enum ResizeEdge { None, Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight }
         private bool _resizing;
         private ResizeEdge _resizeEdge;
@@ -51,9 +65,18 @@ namespace Cthangover.Mods.Interface.Tool
 
         private const int EDGE_ZONE = 6;
         private const int CORNER_ZONE = 14;
-        private const int TITLE_BAR_HEIGHT = 32;
+        private const int TITLE_BAR_HEIGHT = 40;
+        private const int TITLE_BUTTON_SIZE = 38;
+        private const float DefaultSizeRatio = 0.9f;
 
-        // ── viewport sizing ─────────────────────────────────────────
+        /// <summary>
+        /// Height of the in-game HUD icon row. HUD canvas layers draw above
+        /// embedded windows, so a window placed under it would have its title
+        /// bar covered; windows open below this line.
+        /// </summary>
+        private const int HudTopInset = 84;
+
+        private static Font _monospaceFont;
 
         private static Vector2 GetGameViewportSize()
         {
@@ -74,11 +97,7 @@ namespace Cthangover.Mods.Interface.Tool
         public static T Open<T>() where T : ToolWindow, new()
         {
             var window = new T();
-            window.SetupChrome();
-            var tree = Godot.Engine.GetMainLoop() as SceneTree;
-            tree?.Root.AddChild(window);
-            window.PopupCentered();
-            GameLogger.Log("TOOL_WINDOW", $"Open<{typeof(T).Name}> gameViewport=({GetGameViewportSize().X:F0},{GetGameViewportSize().Y:F0}) physWindow=({DisplayServer.WindowGetSize().X},{DisplayServer.WindowGetSize().Y}) windowSize=({window.Size.X},{window.Size.Y})");
+            ShowWindow(window);
             return window;
         }
 
@@ -90,11 +109,14 @@ namespace Cthangover.Mods.Interface.Tool
         {
             if (window is ToolWindow tw)
                 tw.SetupChrome();
-            CthangoverTheme.Apply(window);
+            else
+                CthangoverTheme.Apply(window);
             var tree = Godot.Engine.GetMainLoop() as SceneTree;
             tree?.Root.AddChild(window);
             window.PopupCentered();
-            GameLogger.Log("TOOL_WINDOW", $"ShowWindow gameViewport=({GetGameViewportSize().X:F0},{GetGameViewportSize().Y:F0}) physWindow=({DisplayServer.WindowGetSize().X},{DisplayServer.WindowGetSize().Y}) windowSize=({window.Size.X},{window.Size.Y})");
+            if (window is ToolWindow && window.Position.Y < HudTopInset)
+                window.Position = new Vector2I(window.Position.X, HudTopInset);
+            GameLogger.Log("TOOL_WINDOW", $"ShowWindow '{window.GetType().Name}' size=({window.Size.X},{window.Size.Y})");
             return window;
         }
 
@@ -105,7 +127,7 @@ namespace Cthangover.Mods.Interface.Tool
             _baseTitle = TranslationServer.Translate(titleKey);
             Title = _baseTitle;
             Unresizable = false;
-            CloseRequested += HandleCloseRequested;
+            CloseRequested += RequestClose;
         }
 
         /// <summary>Runs the <see cref="Cleanup"/> teardown hook when the window leaves the tree.</summary>
@@ -114,18 +136,46 @@ namespace Cthangover.Mods.Interface.Tool
             Cleanup();
         }
 
+        /// <summary>Ctrl+S → <see cref="OnSaveShortcut"/>, checked before the GUI so it works inside text fields.</summary>
+        public override void _Input(InputEvent @event)
+        {
+            if (@event is not InputEventKey key || !key.Pressed || key.Echo)
+                return;
+
+            if (key.CtrlPressed && key.Keycode == Key.S)
+            {
+                OnSaveShortcut();
+                SetInputAsHandled();
+            }
+        }
+
+        /// <summary>Forwards keys no control consumed to <see cref="HandleKey"/>.</summary>
+        public override void _UnhandledInput(InputEvent @event)
+        {
+            if (@event is InputEventKey key && key.Pressed && HandleKey(key))
+                SetInputAsHandled();
+        }
+
         /// <summary>
         /// Override to release resources when the window is closed. Called from <c>_ExitTree</c>.
         /// </summary>
         protected virtual void Cleanup() { }
 
+        /// <summary>Ctrl+S handler; tools with a save action override it.</summary>
+        protected virtual void OnSaveShortcut() { }
+
+        /// <summary>
+        /// Tool-specific shortcut for a key no focused control consumed.
+        /// Return <c>true</c> when handled.
+        /// </summary>
+        protected virtual bool HandleKey(InputEventKey key) => false;
+
         // ── chrome setup ────────────────────────────────────────────
 
         /// <summary>
-        /// Wraps all currently-added children inside a custom chrome layout
-        /// (title bar + border + resize zones). Called automatically by
-        /// <see cref="Open{T}"/> and <see cref="ShowWindow"/> after the
-        /// subclass constructor has built its UI. Safe to call only once.
+        /// Wraps all currently-added children inside the chrome layout (title bar,
+        /// content area, status bar, resize zones). Called automatically by
+        /// <see cref="Open{T}"/> and <see cref="ShowWindow"/>; safe to call twice.
         /// </summary>
         internal void SetupChrome()
         {
@@ -133,18 +183,19 @@ namespace Cthangover.Mods.Interface.Tool
                 return;
             _chromeBuilt = true;
 
-            CthangoverTheme.Apply(this);
+            Theme = ToolTheme.Get();
 
-            var initialSize = Size;
-
+            // Read the requested size first: assigning MinSize clamps Size at once.
+            var requested = Size;
+            var viewport = GetGameViewportSize();
             Borderless = true;
             MinSize = new Vector2I(800, 400);
-            MaxSize = (Vector2I)GetGameViewportSize();
+            MaxSize = (Vector2I)viewport;
 
-            if (initialSize.X < MinSize.X || initialSize.Y < MinSize.Y)
-                Size = MaxSize;
-
-            GameLogger.Log("TOOL_WINDOW", $"SetupChrome gameViewport=({GetGameViewportSize().X:F0},{GetGameViewportSize().Y:F0}) physWindow=({DisplayServer.WindowGetSize().X},{DisplayServer.WindowGetSize().Y}) maxSize=({MaxSize.X},{MaxSize.Y})");
+            if (requested.X < MinSize.X || requested.Y < MinSize.Y)
+                requested = (Vector2I)(viewport * DefaultSizeRatio);
+            var maxHeight = MaxSize.Y - HudTopInset - UiTokens.Space3;
+            Size = new Vector2I(Mathf.Min(requested.X, MaxSize.X), Mathf.Min(requested.Y, maxHeight));
 
             var existingChildren = new List<Node>();
             foreach (Node child in GetChildren())
@@ -155,12 +206,21 @@ namespace Cthangover.Mods.Interface.Tool
             var rootPanel = BuildRootPanel();
 
             var rootVBox = new VBoxContainer();
-            rootVBox.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-            rootVBox.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
+            rootVBox.AddThemeConstantOverride("separation", 0);
             rootPanel.AddChild(rootVBox);
 
-            var titleBar = BuildTitleBar();
-            rootVBox.AddChild(titleBar);
+            rootVBox.AddChild(BuildTitleBar());
+
+            var contentMargin = new MarginContainer
+            {
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                SizeFlagsVertical = Control.SizeFlags.ExpandFill
+            };
+            contentMargin.AddThemeConstantOverride("margin_left", UiTokens.Space3);
+            contentMargin.AddThemeConstantOverride("margin_right", UiTokens.Space3);
+            contentMargin.AddThemeConstantOverride("margin_top", UiTokens.Space3);
+            contentMargin.AddThemeConstantOverride("margin_bottom", UiTokens.Space1);
+            rootVBox.AddChild(contentMargin);
 
             var contentArea = new Control
             {
@@ -168,10 +228,12 @@ namespace Cthangover.Mods.Interface.Tool
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
                 SizeFlagsVertical = Control.SizeFlags.ExpandFill
             };
-            rootVBox.AddChild(contentArea);
+            contentMargin.AddChild(contentArea);
 
             foreach (var child in existingChildren)
                 contentArea.AddChild(child);
+
+            rootVBox.AddChild(BuildStatusBar());
 
             AddResizeZones();
         }
@@ -183,14 +245,11 @@ namespace Cthangover.Mods.Interface.Tool
         /// </summary>
         protected void SetDirty()
         {
-            if (!_dirty)
-            {
-                _dirty = true;
-                var text = "* " + _baseTitle;
-                Title = text;
-                if (_titleLabel != null)
-                    _titleLabel.Text = text;
-            }
+            if (_dirty)
+                return;
+
+            _dirty = true;
+            UpdateTitleText();
         }
 
         /// <summary>
@@ -199,33 +258,98 @@ namespace Cthangover.Mods.Interface.Tool
         protected void MarkClean()
         {
             _dirty = false;
-            Title = _baseTitle;
+            UpdateTitleText();
+        }
+
+        private void UpdateTitleText()
+        {
+            var text = _dirty ? "* " + _baseTitle : _baseTitle;
+            Title = text;
             if (_titleLabel != null)
-                _titleLabel.Text = _baseTitle;
+                _titleLabel.Text = text;
+        }
+
+        // ── status bar ──────────────────────────────────────────────
+
+        /// <summary>Shows a message in the status bar, coloured by <paramref name="kind"/>.</summary>
+        protected void SetStatus(string text, ToolStatusKind kind = ToolStatusKind.Info)
+        {
+            _pendingStatus = text ?? string.Empty;
+            _pendingStatusKind = kind;
+            if (_statusLabel == null)
+                return;
+
+            _statusLabel.Text = _pendingStatus;
+            _statusLabel.AddThemeColorOverride("font_color", kind switch
+            {
+                ToolStatusKind.Ok => UiTokens.Ok,
+                ToolStatusKind.Error => UiTokens.DangerText,
+                _ => UiTokens.Body,
+            });
+        }
+
+        /// <summary>Sets the faint right-aligned hint of the status bar (usually the shortcut list).</summary>
+        protected void SetHint(string text)
+        {
+            _pendingHint = text ?? string.Empty;
+            if (_hintLabel != null)
+                _hintLabel.Text = _pendingHint;
         }
 
         // ── unsaved-changes dialogs ─────────────────────────────────
 
+        /// <summary>Asks "close without saving?" and runs <paramref name="onDiscard"/> on confirmation.</summary>
         protected void ShowUnsavedDialog(Action onDiscard)
         {
-            var dialog = new ConfirmationDialog();
-            dialog.Title = TranslationServer.Translate("tools/unsaved_title");
-            dialog.DialogText = TranslationServer.Translate("tools/unsaved_text");
-            dialog.Confirmed += () => { dialog.QueueFree(); onDiscard(); };
-            dialog.Canceled += () => dialog.QueueFree();
+            ShowConfirm("tools/unsaved_title", "tools/unsaved_text", onDiscard);
+        }
+
+        /// <summary>
+        /// Runs <paramref name="action"/> right away when there are no unsaved
+        /// changes, otherwise only after the author agrees to discard them; on
+        /// refusal <paramref name="onCancel"/> runs (e.g. to roll a file picker
+        /// back). Use before replacing the edited document.
+        /// </summary>
+        protected void RunDiscardingChanges(Action action, Action onCancel = null)
+        {
+            if (!_dirty)
+            {
+                action();
+                return;
+            }
+
+            ShowConfirm("tools/unsaved_title", "tools/unsaved_discard_text", () =>
+            {
+                MarkClean();
+                action();
+            }, onCancel);
+        }
+
+        /// <summary>Shows a themed OK/Cancel dialog; <paramref name="onConfirm"/> runs on OK, <paramref name="onCancel"/> otherwise.</summary>
+        protected void ShowConfirm(string titleKey, string textKey, Action onConfirm, Action onCancel = null)
+        {
+            var dialog = new ConfirmationDialog
+            {
+                Title = TranslationServer.Translate(titleKey),
+                DialogText = TranslationServer.Translate(textKey),
+                Theme = ToolTheme.Get()
+            };
+            dialog.Confirmed += () => { dialog.QueueFree(); onConfirm(); };
+            dialog.Canceled += () => { dialog.QueueFree(); onCancel?.Invoke(); };
             AddChild(dialog);
             dialog.PopupCentered();
         }
 
-        private void HandleCloseRequested()
+        /// <summary>Closes the window, asking first when there are unsaved changes.</summary>
+        protected void RequestClose()
         {
             if (_dirty)
-                ShowUnsavedDialog(() => QueueFree());
+                ShowUnsavedDialog(QueueFree);
             else
                 QueueFree();
         }
 
-        // ── layout helpers (unchanged API) ──────────────────────────
+        // ── layout helpers ──────────────────────────────────────────
 
         protected static VBoxContainer CreateFillContainer()
         {
@@ -234,13 +358,14 @@ namespace Cthangover.Mods.Interface.Tool
             c.AnchorBottom = 1f;
             c.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
             c.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
+            c.AddThemeConstantOverride("separation", UiTokens.Space3);
             return c;
         }
 
         protected static HBoxContainer CreateToolbar()
         {
             var t = new HBoxContainer();
-            t.AddThemeConstantOverride("separation", 8);
+            t.AddThemeConstantOverride("separation", UiTokens.Space2);
             return t;
         }
 
@@ -249,26 +374,54 @@ namespace Cthangover.Mods.Interface.Tool
             var panel = new PanelContainer();
             panel.CustomMinimumSize = new Vector2(width, 100);
             panel.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
+            panel.AddThemeStyleboxOverride("panel", SidebarBox());
 
             var scroll = new ScrollContainer();
             scroll.HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled;
             scroll.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
             scroll.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
             panel.AddChild(scroll);
+            content.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+            content.AddThemeConstantOverride("separation", UiTokens.Space2);
             scroll.AddChild(content);
 
             return panel;
         }
 
-        protected static Font GetMonospaceFont()
+        /// <summary>Inset sidebar surface: <c>--ct-surface-2</c>, line border, card radius.</summary>
+        protected static StyleBoxFlat SidebarBox()
         {
-            try
+            var style = new StyleBoxFlat
             {
-                if (ResourceLoader.Exists("res://assets/fonts/RobotoMono.ttf"))
-                    return ResourceLoader.Load<FontFile>("res://assets/fonts/RobotoMono.ttf");
-            }
-            catch { }
-            return ThemeDB.FallbackFont;
+                BgColor = UiTokens.Surface2,
+                BorderColor = UiTokens.Line,
+                BorderWidthLeft = 1,
+                BorderWidthRight = 1,
+                BorderWidthTop = 1,
+                BorderWidthBottom = 1,
+                CornerRadiusTopLeft = UiTokens.RadiusMd,
+                CornerRadiusTopRight = UiTokens.RadiusMd,
+                CornerRadiusBottomLeft = UiTokens.RadiusMd,
+                CornerRadiusBottomRight = UiTokens.RadiusMd,
+                ContentMarginLeft = UiTokens.Space4,
+                ContentMarginRight = UiTokens.Space4,
+                ContentMarginTop = UiTokens.Space4,
+                ContentMarginBottom = UiTokens.Space4
+            };
+            return style;
+        }
+
+        /// <summary>
+        /// Monospace font for code, IDs and numbers (style guide: <c>--ct-mono</c>).
+        /// The game ships no mono font, so the OS one is requested by name with the
+        /// guide's fallbacks; Godot falls back to its default font if none exist.
+        /// </summary>
+        public static Font GetMonospaceFont()
+        {
+            return _monospaceFont ??= new SystemFont
+            {
+                FontNames = new[] { "Consolas", "Cascadia Mono", "DejaVu Sans Mono", "Liberation Mono", "Courier New", "monospace" }
+            };
         }
 
         // ── chrome building ─────────────────────────────────────────
@@ -290,10 +443,14 @@ namespace Cthangover.Mods.Interface.Tool
                 BorderWidthBottom = 1,
                 BorderWidthTop = 1,
                 BorderColor = UiTokens.Line,
-                ContentMarginLeft = 4,
-                ContentMarginRight = 4,
-                ContentMarginBottom = 4,
-                ContentMarginTop = 4
+                CornerRadiusTopLeft = UiTokens.RadiusLg,
+                CornerRadiusTopRight = UiTokens.RadiusLg,
+                CornerRadiusBottomLeft = UiTokens.RadiusLg,
+                CornerRadiusBottomRight = UiTokens.RadiusLg,
+                ContentMarginLeft = 1,
+                ContentMarginRight = 1,
+                ContentMarginBottom = 1,
+                ContentMarginTop = 1
             };
             panel.AddThemeStyleboxOverride("panel", style);
             AddChild(panel);
@@ -308,25 +465,26 @@ namespace Cthangover.Mods.Interface.Tool
                 Name = "TitleBar",
                 CustomMinimumSize = new Vector2(0, TITLE_BAR_HEIGHT)
             };
+            _titleBar.AddThemeConstantOverride("separation", UiTokens.Space1);
 
             _titleLabel = new Label
             {
                 Text = _dirty ? "* " + _baseTitle : _baseTitle,
+                Uppercase = true,
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
                 VerticalAlignment = VerticalAlignment.Center,
                 MouseFilter = Control.MouseFilterEnum.Ignore
             };
             _titleLabel.AddThemeColorOverride("font_color", UiTokens.InkBright);
+            _titleLabel.AddThemeFontSizeOverride("font_size", UiTokens.FontLead);
             _titleBar.AddChild(_titleLabel);
 
-            _maximizeBtn = CreateTitleButton("\u25A1", OnMaximizeToggle,
-                UiTokens.Muted);
-            CthangoverTheme.ApplyIcon(_maximizeBtn);
+            _maximizeBtn = CreateTitleButton("□", OnMaximizeToggle, UiTokens.BtnHover, UiTokens.InkBright);
+            _maximizeBtn.TooltipText = TranslationServer.Translate("tools/window_maximize");
             _titleBar.AddChild(_maximizeBtn);
 
-            var closeBtn = CreateTitleButton("\u2715", OnClose,
-                UiTokens.Danger);
-            CthangoverTheme.ApplyDanger(closeBtn);
+            var closeBtn = CreateTitleButton("✕", RequestClose, UiTokens.DangerSoft, UiTokens.DangerText);
+            closeBtn.TooltipText = TranslationServer.Translate("tools/window_close");
             _titleBar.AddChild(closeBtn);
 
             _titleBar.GuiInput += OnTitleBarInput;
@@ -336,39 +494,93 @@ namespace Cthangover.Mods.Interface.Tool
 
             var titleBg = new StyleBoxFlat
             {
-                BgColor = UiTokens.Surface2,
-                ContentMarginLeft = 10,
-                ContentMarginRight = 2,
+                BgColor = UiTokens.Surface1,
+                BorderColor = UiTokens.Line,
+                BorderWidthBottom = 1,
+                CornerRadiusTopLeft = UiTokens.RadiusLg,
+                CornerRadiusTopRight = UiTokens.RadiusLg,
+                ContentMarginLeft = UiTokens.Space7,
+                ContentMarginRight = UiTokens.Space1,
             };
             titlePanel.AddThemeStyleboxOverride("panel", titleBg);
 
             return titlePanel;
         }
 
-        private static Button CreateTitleButton(string text, Action pressed, Color hoverColor)
+        private PanelContainer BuildStatusBar()
+        {
+            var bar = new HBoxContainer { Name = "StatusBar", CustomMinimumSize = new Vector2(0, 26) };
+            bar.AddThemeConstantOverride("separation", UiTokens.Space5);
+
+            _statusLabel = new Label
+            {
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis
+            };
+            _statusLabel.AddThemeFontSizeOverride("font_size", UiTokens.FontBodySmall);
+            bar.AddChild(_statusLabel);
+
+            _hintLabel = new Label
+            {
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            _hintLabel.AddThemeFontSizeOverride("font_size", UiTokens.FontSmall);
+            _hintLabel.AddThemeColorOverride("font_color", UiTokens.Faint);
+            bar.AddChild(_hintLabel);
+
+            SetStatus(_pendingStatus, _pendingStatusKind);
+            SetHint(_pendingHint);
+
+            var panel = new PanelContainer();
+            panel.AddChild(bar);
+            var style = new StyleBoxFlat
+            {
+                BgColor = UiTokens.Surface2,
+                BorderColor = UiTokens.Line,
+                BorderWidthTop = 1,
+                CornerRadiusBottomLeft = UiTokens.RadiusLg,
+                CornerRadiusBottomRight = UiTokens.RadiusLg,
+                ContentMarginLeft = UiTokens.Space5,
+                ContentMarginRight = UiTokens.Space5,
+            };
+            panel.AddThemeStyleboxOverride("panel", style);
+            return panel;
+        }
+
+        private static Button CreateTitleButton(string text, Action pressed, Color hoverBg, Color hoverText)
         {
             var btn = new Button
             {
                 Text = text,
-                CustomMinimumSize = new Vector2(36, 28),
+                CustomMinimumSize = new Vector2(TITLE_BUTTON_SIZE, TITLE_BUTTON_SIZE),
                 SizeFlagsHorizontal = Control.SizeFlags.ShrinkEnd,
                 SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
-                Flat = true
+                Flat = true,
+                FocusMode = Control.FocusModeEnum.None
             };
 
-            btn.AddThemeColorOverride("font_color", UiTokens.Ink);
-            btn.AddThemeColorOverride("font_hover_color", UiTokens.InkBright);
-            btn.AddThemeColorOverride("font_hover_pressed_color", UiTokens.InkBright);
-            btn.AddThemeFontSizeOverride("font_size", UiTokens.FontBodyLarge);
+            btn.AddThemeColorOverride("font_color", UiTokens.Muted);
+            btn.AddThemeColorOverride("font_hover_color", hoverText);
+            btn.AddThemeColorOverride("font_pressed_color", hoverText);
+            btn.AddThemeColorOverride("font_hover_pressed_color", hoverText);
+            btn.AddThemeFontSizeOverride("font_size", UiTokens.FontLead);
 
             var normalStyle = new StyleBoxFlat { BgColor = Colors.Transparent };
             btn.AddThemeStyleboxOverride("normal", normalStyle);
 
-            var hoverStyle = new StyleBoxFlat { BgColor = hoverColor };
+            var hoverStyle = new StyleBoxFlat
+            {
+                BgColor = hoverBg,
+                CornerRadiusTopLeft = UiTokens.RadiusSm,
+                CornerRadiusTopRight = UiTokens.RadiusSm,
+                CornerRadiusBottomLeft = UiTokens.RadiusSm,
+                CornerRadiusBottomRight = UiTokens.RadiusSm
+            };
             btn.AddThemeStyleboxOverride("hover", hoverStyle);
             btn.AddThemeStyleboxOverride("pressed", hoverStyle);
-
-            btn.AddThemeStyleboxOverride("focus", normalStyle);
+            btn.AddThemeStyleboxOverride("focus", new StyleBoxEmpty());
 
             btn.Pressed += pressed;
             return btn;
@@ -389,25 +601,19 @@ namespace Cthangover.Mods.Interface.Tool
             _restorePosition = Position;
             _restoreSize = Size;
             _isMaximized = true;
-            _maximizeBtn.Text = "\u2750";
+            _maximizeBtn.Text = "❐";
 
             Position = Vector2I.Zero;
             Size = (Vector2I)GetGameViewportSize();
-            GameLogger.Log("TOOL_WINDOW", $"MaximizeWindow gameViewport=({GetGameViewportSize().X:F0},{GetGameViewportSize().Y:F0}) physWindow=({DisplayServer.WindowGetSize().X},{DisplayServer.WindowGetSize().Y}) newSize=({Size.X},{Size.Y})");
         }
 
         private void RestoreWindow()
         {
             _isMaximized = false;
-            _maximizeBtn.Text = "\u25A1";
+            _maximizeBtn.Text = "□";
 
             Position = _restorePosition;
             Size = _restoreSize;
-        }
-
-        private void OnClose()
-        {
-            HandleCloseRequested();
         }
 
         // ── title bar drag ──────────────────────────────────────────
@@ -429,7 +635,7 @@ namespace Cthangover.Mods.Interface.Tool
                         if (_isMaximized)
                         {
                             _isMaximized = false;
-                            _maximizeBtn.Text = "\u25A1";
+                            _maximizeBtn.Text = "□";
                             var pos = DisplayServer.MouseGetPosition();
                             var viewportSize = GetGameViewportSize();
                             var ratio = pos.X / viewportSize.X;
@@ -437,6 +643,7 @@ namespace Cthangover.Mods.Interface.Tool
                                 Mathf.RoundToInt(pos.X - _restoreSize.X * ratio),
                                 Mathf.RoundToInt(pos.Y - 4));
                             _titleDragMouseStart = new Vector2(pos.X, pos.Y);
+                            Size = _restoreSize;
                         }
                         else
                         {
@@ -452,7 +659,7 @@ namespace Cthangover.Mods.Interface.Tool
                     }
                 }
             }
-            else if (evt is InputEventMouseMotion mm && _draggingTitle)
+            else if (evt is InputEventMouseMotion && _draggingTitle)
             {
                 var mp = DisplayServer.MouseGetPosition();
                 var delta = new Vector2(mp.X, mp.Y) - _titleDragMouseStart;
@@ -589,49 +796,23 @@ namespace Cthangover.Mods.Interface.Tool
         private void ApplyResize(Vector2 globalMouse)
         {
             var delta = globalMouse - _resizeMouseStart;
+            var dx = Mathf.RoundToInt(delta.X);
+            var dy = Mathf.RoundToInt(delta.Y);
 
             int newX = _resizePosStart.X;
             int newY = _resizePosStart.Y;
             int newW = _resizeSizeStart.X;
             int newH = _resizeSizeStart.Y;
 
-            switch (_resizeEdge)
-            {
-                case ResizeEdge.Left:
-                    newX = _resizePosStart.X + Mathf.RoundToInt(delta.X);
-                    newW = _resizeSizeStart.X - Mathf.RoundToInt(delta.X);
-                    break;
-                case ResizeEdge.Right:
-                    newW = _resizeSizeStart.X + Mathf.RoundToInt(delta.X);
-                    break;
-                case ResizeEdge.Top:
-                    newY = _resizePosStart.Y + Mathf.RoundToInt(delta.Y);
-                    newH = _resizeSizeStart.Y - Mathf.RoundToInt(delta.Y);
-                    break;
-                case ResizeEdge.Bottom:
-                    newH = _resizeSizeStart.Y + Mathf.RoundToInt(delta.Y);
-                    break;
-                case ResizeEdge.TopLeft:
-                    newX = _resizePosStart.X + Mathf.RoundToInt(delta.X);
-                    newY = _resizePosStart.Y + Mathf.RoundToInt(delta.Y);
-                    newW = _resizeSizeStart.X - Mathf.RoundToInt(delta.X);
-                    newH = _resizeSizeStart.Y - Mathf.RoundToInt(delta.Y);
-                    break;
-                case ResizeEdge.TopRight:
-                    newY = _resizePosStart.Y + Mathf.RoundToInt(delta.Y);
-                    newW = _resizeSizeStart.X + Mathf.RoundToInt(delta.X);
-                    newH = _resizeSizeStart.Y - Mathf.RoundToInt(delta.Y);
-                    break;
-                case ResizeEdge.BottomLeft:
-                    newX = _resizePosStart.X + Mathf.RoundToInt(delta.X);
-                    newW = _resizeSizeStart.X - Mathf.RoundToInt(delta.X);
-                    newH = _resizeSizeStart.Y + Mathf.RoundToInt(delta.Y);
-                    break;
-                case ResizeEdge.BottomRight:
-                    newW = _resizeSizeStart.X + Mathf.RoundToInt(delta.X);
-                    newH = _resizeSizeStart.Y + Mathf.RoundToInt(delta.Y);
-                    break;
-            }
+            var left = _resizeEdge is ResizeEdge.Left or ResizeEdge.TopLeft or ResizeEdge.BottomLeft;
+            var right = _resizeEdge is ResizeEdge.Right or ResizeEdge.TopRight or ResizeEdge.BottomRight;
+            var top = _resizeEdge is ResizeEdge.Top or ResizeEdge.TopLeft or ResizeEdge.TopRight;
+            var bottom = _resizeEdge is ResizeEdge.Bottom or ResizeEdge.BottomLeft or ResizeEdge.BottomRight;
+
+            if (left) { newX += dx; newW -= dx; }
+            if (right) newW += dx;
+            if (top) { newY += dy; newH -= dy; }
+            if (bottom) newH += dy;
 
             newX = Mathf.Clamp(newX, 0, MaxSize.X - 100);
             newY = Mathf.Clamp(newY, 0, MaxSize.Y - 100);
