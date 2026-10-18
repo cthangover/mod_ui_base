@@ -8,7 +8,7 @@ namespace Cthangover.Mods.Interface.Menu
     /// <summary>
     /// In-game pause menu: save/load/settings/quit. The settings and save/load
     /// panels are not referenced by type: they are registered in the
-    /// <see cref="MenuRegistry"/> (by the <c>base_menu</c> mod or any other mod
+    /// <see cref="MenuRegistry"/> (by the <c>menu_base</c> mod or any other mod
     /// that wants to provide them) and instantiated here by id, so the panel
     /// implementations can live entirely inside mods. Both panels stay hidden
     /// children created on _Ready to avoid loading delays when the player opens

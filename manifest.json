@@ -1,6 +1,6 @@
 {
-  "id": "interface",
-  "name": "Interface",
+  "id": "ui_base",
+  "name": "UI",
   "version": "1.0.0",
   "author": "ct",
   "description": "Engine UI subsystem: widget toolkit (Widget/ModWidget/lists), ViewBox background viewport, ToolBox toolbar, GameMenu/SaveIcon, notification panels, UiKit design system, DeviceInput. Kernel keeps only contracts (IWidget, IDialogBox, IToolbarHost, ISaveIconHost, IBackgroundView, IUiLazyConstruct, MenuRegistry, ToolFactory, NotificationBuffer, SceneEventController, CthangoverTheme/UiTokens boot styling) and drives this mod through those seams.",
@@ -8,5 +8,19 @@
   "depends": [],
   "sources": [
     "src/**/*.cs"
+  ],
+  "ui": [
+    {
+      "id": "game_menu",
+      "kind": "panel",
+      "slot": "ModBeforeUIPanel",
+      "scene_path": "scenes/menu/game_menu.tscn",
+      "button": {
+        "icon": "settings",
+        "locale": "menu/settings",
+        "index": 50
+      },
+      "priority": 10
+    }
   ]
 }
