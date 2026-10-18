@@ -268,7 +268,7 @@ namespace Cthangover.Mods.Interface.Theming
         /// backdrop let scene buttons bleed through, which made the panel close
         /// buttons look noisy; an opaque backing removes them. The colour stays
         /// underneath as a fallback because the texture ships in the optional
-        /// "interface" mod and may not resolve, in which case the panel still
+        /// "ui_base" mod and may not resolve, in which case the panel still
         /// gets a solid surface.
         /// </summary>
         public static void ApplyPanelBackdrop(ColorRect backdrop)
