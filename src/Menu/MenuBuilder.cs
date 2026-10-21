@@ -90,6 +90,9 @@ namespace Cthangover.Mods.Interface.Menu
             }
         }
 
+        /// <summary>Largest icon width of a menu button, so an entry icon never makes its row taller than the text rows.</summary>
+        private const int MenuIconSize = 22;
+
         private static Button CreateButton(Control menuRoot, MenuButtonEntry entry)
         {
             var title = TranslationServer.Translate(entry.Locale);
@@ -104,7 +107,11 @@ namespace Cthangover.Mods.Interface.Menu
             {
                 var icon = UIIconFactory.Instance.Get(entry.Icon);
                 if (icon != null)
+                {
+                    // Entry icons are toolbar icons (60 px); in a menu row they stay text-sized.
                     button.Icon = icon;
+                    button.AddThemeConstantOverride("icon_max_width", MenuIconSize);
+                }
             }
 
             if (!string.IsNullOrEmpty(entry.Variation))
