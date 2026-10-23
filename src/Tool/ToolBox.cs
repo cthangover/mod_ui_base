@@ -22,6 +22,10 @@ namespace Cthangover.Mods.Interface.Tool
     /// </summary>
     public partial class ToolBox : Control, IToolbarHost, ISaveIconHost
     {
+        /// <summary>Side of a toolbar button and its icon: the icons are 64 px pixel-art sprites (scaled x4), so a
+        /// 64 px slot shows every sprite pixel; at 60 px the nearest filter dropped rows of them.</summary>
+        private const int SlotSize = 64;
+
         private HBoxContainer _buttons;
         private TextureRect _saveIcon;
 
@@ -64,14 +68,14 @@ namespace Cthangover.Mods.Interface.Tool
         {
             var button = new Button
             {
-                CustomMinimumSize = new Vector2(60, 60),
+                CustomMinimumSize = new Vector2(SlotSize, SlotSize),
                 SizeFlagsVertical = SizeFlags.ShrinkCenter,
                 TooltipText = title,
             };
 
             if (icon != null)
             {
-                var iconRect = UiKit.Icon(icon, 60);
+                var iconRect = UiKit.Icon(icon, SlotSize);
                 button.AddChild(iconRect);
                 iconRect.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
             }
@@ -92,7 +96,7 @@ namespace Cthangover.Mods.Interface.Tool
         /// <summary>
         /// Adds one "tools" toolbar button whose popup lists every visible
         /// <see cref="IToolBoxButton"/>. Tools used to get a text button each,
-        /// which did not fit the 60×60 icon row and overlapped its icons; a
+        /// which did not fit the square icon row and overlapped its icons; a
         /// single icon keeps the HUD row uniform no matter how many tools are
         /// installed. Nothing is added when no tool button is visible.
         /// </summary>
