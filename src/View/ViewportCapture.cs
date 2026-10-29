@@ -23,6 +23,7 @@ namespace Cthangover.Mods.Interface.View
             if (image == null || !viewport.UseHdr2D)
                 return image;
 
+            using var source = image;
             image.Convert(Image.Format.Rgbaf);
             var floats = MemoryMarshal.Cast<byte, float>(image.GetData());
             var bytes = new byte[floats.Length];
@@ -39,7 +40,7 @@ namespace Cthangover.Mods.Interface.View
         /// <summary>Saves the current frame of <paramref name="viewport"/> as a PNG; false without a frame.</summary>
         public static bool SavePng(Viewport viewport, string path)
         {
-            var image = Take(viewport);
+            using var image = Take(viewport);
             return image != null && image.SavePng(path) == Error.Ok;
         }
     }

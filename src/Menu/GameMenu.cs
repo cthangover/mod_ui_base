@@ -140,7 +140,7 @@ namespace Cthangover.Mods.Interface.Menu
 
         private void OnExitClick()
         {
-            GetTree().Quit();
+            Cthangover.Core.Bootstrap.ApplicationExit.Quit(GetTree());
         }
     }
 }
