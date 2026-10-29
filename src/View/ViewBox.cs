@@ -99,13 +99,28 @@ namespace Cthangover.Mods.Interface.View
 		{
 			var result = layerName?.ToLowerInvariant() switch
 			{
-				"background" => InteractiveLayerBackground ??= CreateLayerDirect("InteractiveLayer_Background", 1),
-				"foreground" => InteractiveLayerForeground ??= CreateLayerDirect("InteractiveLayer_Foreground", 3),
+				"background" => InteractiveLayerBackground ??= CreateSceneLayer("InteractiveLayer_Background"),
+				"foreground" => InteractiveLayerForeground ??= CreateSceneLayer("InteractiveLayer_Foreground"),
 				"ui" => InteractiveLayerUI ??= CreateLayerDirect("InteractiveLayer_UI", 5),
-				_ => InteractiveLayerForeground ??= CreateLayerDirect("InteractiveLayer_Foreground", 3)
+				_ => InteractiveLayerForeground ??= CreateSceneLayer("InteractiveLayer_Foreground")
 			};
 
 			return result;
+		}
+
+		/// <summary>
+		/// Creates a layer that belongs to the picture itself. It keeps the default
+		/// z index and is ordered by its place among the ViewBox children instead: a
+		/// z index is global to the canvas, so it lifted scene objects over the dialog
+		/// box, the toolbar and the open panels that follow the ViewBox in the tree.
+		/// The background layer stays below the foreground one whichever comes first.
+		/// </summary>
+		private Control CreateSceneLayer(string name)
+		{
+			var layer = CreateLayerDirect(name, 0);
+			if (InteractiveLayerForeground != null)
+				MoveChild(layer, InteractiveLayerForeground.GetIndex());
+			return layer;
 		}
 
 		private Control CreateLayerDirect(string name, int zIndex)

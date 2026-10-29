@@ -3,7 +3,7 @@
   "name": "UI",
   "version": "1.0.0",
   "author": "ct",
-  "description": "Engine UI subsystem: widget toolkit (Widget/ModWidget/lists), ViewBox background viewport, ToolBox toolbar, GameMenu/SaveIcon, notification panels, UiKit design system, DeviceInput. Kernel keeps only contracts (IWidget, IDialogBox, IToolbarHost, ISaveIconHost, IBackgroundView, IUiLazyConstruct, MenuRegistry, ToolFactory, NotificationBuffer, SceneEventController, CthangoverTheme/UiTokens boot styling) and drives this mod through those seams.",
+  "description": "The interface layer every game shares: the toolbar, the in-game menu, the save indicator, notifications and the common look of panels, buttons and lists.",
   "category": "ui",
   "depends": [],
   "sources": [
