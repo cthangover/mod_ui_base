@@ -22,6 +22,7 @@ namespace Cthangover.Mods.Interface.Menu
         private ISettingsPanel _settingsPanel;
         private ISaveLoadPanel _saveLoadPanel;
         private Button _saveBtn;
+        private Label _title;
         private readonly Dictionary<Button, string> _btnKeys = new();
 
         /// <summary>Wires menu buttons, instantiates the hidden settings and save/load panels from the <see cref="MenuRegistry"/>, and subscribes to language changes.</summary>
@@ -42,6 +43,7 @@ namespace Cthangover.Mods.Interface.Menu
             _btnKeys[GetNode<Button>("Panel/Margin/VBox/SettingsBtn")] = "menu/settings";
             _btnKeys[GetNode<Button>("Panel/Margin/VBox/MainMenuBtn")] = "menu/main_menu";
             _btnKeys[GetNode<Button>("Panel/Margin/VBox/ExitBtn")] = "menu/exit";
+            _title = GetNode<Label>("Panel/Margin/VBox/Title");
 
             AttachPanel(MenuRegistry.OpenPanel("settings"));
             AttachPanel(MenuRegistry.OpenPanel("save_load"));
@@ -92,6 +94,7 @@ namespace Cthangover.Mods.Interface.Menu
         {
             foreach (var kv in _btnKeys)
                 kv.Key.Text = TranslationServer.Translate(kv.Value);
+            _title.Text = TranslationServer.Translate("menu/title");
         }
 
         private void OnReturnClick()
