@@ -382,6 +382,9 @@ namespace Cthangover.Mods.Interface.Tool
             scroll.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
             panel.AddChild(scroll);
             content.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+            // Fill the visible height too: an expanding list inside (a palette, an entity list) gets the whole
+            // panel instead of its minimum height; taller content still scrolls.
+            content.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
             content.AddThemeConstantOverride("separation", UiTokens.Space2);
             scroll.AddChild(content);
 
