@@ -9,6 +9,9 @@
   "sources": [
     "src/**/*.cs"
   ],
+  "test_sources": [
+    "tests/*.cs"
+  ],
   "ui": [
     {
       "id": "game_menu",

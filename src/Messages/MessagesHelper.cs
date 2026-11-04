@@ -12,7 +12,8 @@ namespace Cthangover.Mods.Interface.Messages
     /// pickup notifications). Manages a cycling position index of 0-5 so
     /// consecutive messages stack vertically without overlapping. Each message
     /// is instantiated from message.tscn and parented to the Background node
-    /// (found via scene tree search). Messages auto-fade and self-destruct
+    /// (found via scene tree search). Without that shell, only the text is buffered for its return;
+    /// no detached native controls are allocated. Visible messages auto-fade and self-destruct
     /// via UiMessage's OnUpdate.
     /// </summary>
     public static class MessagesHelper
@@ -85,6 +86,7 @@ namespace Cthangover.Mods.Interface.Messages
         /// <summary>
         /// Instantiates a <see cref="UiMessage"/> from <c>message.tscn</c>, parents
         /// it to the Background node, and configures it for display and auto-fade.
+        /// A scene without a background queues the text until the shell returns.
         /// </summary>
         /// <param name="position">Y-offset in pixels for this message.</param>
         /// <param name="text">The message text to display.</param>
@@ -92,22 +94,23 @@ namespace Cthangover.Mods.Interface.Messages
         /// <param name="speed">Fade speed multiplier (default 1).</param>
         public static void AddMessage(float position, string text, Color color, float speed = 1f)
         {
-            if (prefab == null)
-                prefab = new ModScenePrefab("scenes/ui/message.tscn");
-
-            var instance = prefab.Instantiate<UiMessage>();
-            var background = SceneContextNode.FindNode<Control>("Background");
+            // Battle and menu scenes may have no shell background. Resolve the owner before allocating native nodes.
+            var tree = SceneContextNode.Instance?.GetTree();
+            var background = tree?.Root.FindChild("Background", true, false) as Control
+                ?? tree?.GetFirstNodeInGroup("Background") as Control;
             if (background == null)
             {
-                background = SceneContextNode.Instance?.GetTree()?.GetFirstNodeInGroup("Background") as Control;
-                if (background == null)
-                {
-                    GameLogger.Log("UI", "Background node not found for messages", LogLevel.Error);
-                    return;
-                }
+                // Keep battle rewards until the shell returns, without creating a detached message tree.
+                NotificationBuffer.Add(text);
+                return;
             }
-            background.AddChild(instance);
-            instance.Setup(position, text, speed, color);
+            prefab ??= new ModScenePrefab("scenes/ui/message.tscn");
+            var instance = prefab.Instantiate<UiMessage>();
+            if (instance != null)
+            {
+                background.AddChild(instance);
+                instance.Setup(position, text, speed, color);
+            }
 
             ModEventBus.Publish(new NotificationRequestedEvent
             {
