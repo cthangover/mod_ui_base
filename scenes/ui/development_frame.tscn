@@ -1,0 +1,56 @@
+[gd_scene format=3]
+
+[ext_resource type="Texture2D" path="ui_images/development_frame.png" id="1_frame"]
+[ext_resource type="Texture2D" path="ui_images/development_plaque_blank.png" id="2_blank"]
+[ext_resource type="Script" path="res://mods/ui_base/src/Theming/DevelopmentFrame.cs" id="3_script"]
+
+[node name="DevelopmentFrame" type="TextureRect"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("1_frame")
+expand_mode = 1
+stretch_mode = 0
+script = ExtResource("3_script")
+
+[node name="Plaque" type="Control" parent="."]
+layout_mode = 0
+offset_right = 1536.0
+offset_bottom = 1024.0
+mouse_filter = 2
+
+[node name="Backing" type="ColorRect" parent="Plaque"]
+layout_mode = 0
+offset_left = 440.0
+offset_top = 895.0
+offset_right = 1096.0
+offset_bottom = 1005.0
+mouse_filter = 2
+color = Color(0, 0, 0, 1)
+
+[node name="Blank" type="TextureRect" parent="Plaque"]
+layout_mode = 0
+offset_left = 440.0
+offset_top = 895.0
+offset_right = 1096.0
+offset_bottom = 1005.0
+mouse_filter = 2
+texture = ExtResource("2_blank")
+expand_mode = 1
+
+[node name="Caption" type="Label" parent="Plaque"]
+layout_mode = 0
+offset_left = 440.0
+offset_top = 895.0
+offset_right = 1096.0
+offset_bottom = 1005.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(1, 0.9, 0, 1)
+theme_override_font_sizes/font_size = 72
+text = "ui/cover/in_development"
+horizontal_alignment = 1
+vertical_alignment = 1

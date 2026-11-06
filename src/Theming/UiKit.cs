@@ -1,4 +1,6 @@
 using Cthangover.Core.Mods.Resolvers;
+using Cthangover.Core.Scenes;
+using Cthangover.Core.Utils;
 using Godot;
 using Cthangover.Core.UI.Theming;
 
@@ -26,6 +28,14 @@ namespace Cthangover.Mods.Interface.Theming
     /// </summary>
     public static class UiKit
     {
+        /// <summary>Creates a non-interactive cover overlay; its scene owns the generated art and layout.</summary>
+        public static Control DevelopmentFrame(string version)
+        {
+            var frame = (Control)TscnScenes.LoadAndBuild("scenes/ui/development_frame.tscn");
+            frame.Visible = VersionHelper.IsInDevelopment(version);
+            return frame;
+        }
+
         /// <summary>Rounded frame from tokens; pass transparent border to omit it.</summary>
         public static StyleBoxFlat Frame(int radius, Color background, Color? border = null, int borderWidth = 1)
         {
