@@ -1,0 +1,57 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="src/View/ModCategoryEditor.cs" id="1"]
+
+[node name="ModCategoryEditor" type="Control"]
+custom_minimum_size = Vector2(440, 260)
+size_flags_horizontal = 3
+script = ExtResource("1")
+
+[node name="Layout" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 4
+
+[node name="Caption" type="Label" parent="Layout"]
+layout_mode = 2
+text = "mod_categories/title"
+
+[node name="Base" type="GridContainer" parent="Layout"]
+layout_mode = 2
+columns = 4
+
+[node name="Custom" type="HFlowContainer" parent="Layout"]
+layout_mode = 2
+
+[node name="Input" type="HBoxContainer" parent="Layout"]
+layout_mode = 2
+
+[node name="Code" type="LineEdit" parent="Layout/Input"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "mod_categories/code"
+
+[node name="Add" type="Button" parent="Layout/Input"]
+layout_mode = 2
+text = "mod_categories/add"
+
+[node name="Suggestions" type="OptionButton" parent="Layout"]
+layout_mode = 2
+fit_to_longest_item = false
+
+[node name="PrimaryRow" type="HBoxContainer" parent="Layout"]
+layout_mode = 2
+
+[node name="Caption" type="Label" parent="Layout/PrimaryRow"]
+layout_mode = 2
+text = "mod_categories/primary"
+
+[node name="Primary" type="OptionButton" parent="Layout/PrimaryRow"]
+layout_mode = 2
+fit_to_longest_item = false
+text_overrun_behavior = 3
+size_flags_horizontal = 3
