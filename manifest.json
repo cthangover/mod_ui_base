@@ -1,7 +1,7 @@
 {
   "id": "ui_base",
   "name": "UI",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "author": "ct",
   "description": "The interface layer every game shares: the toolbar, the in-game menu, the save indicator, notifications and the common look of panels, buttons and lists.",
   "category": "ui",
