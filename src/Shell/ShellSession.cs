@@ -61,6 +61,7 @@ namespace Cthangover.Mods.Interface.Shell
             foreach (var claim in claims.Values) blocked |= claim;
             if (ModalVisible()) blocked |= ShellBlock.All;
             if (!GetWindow().HasFocus()) blocked |= ShellBlock.Input | ShellBlock.Pointer;
+            if (CapturePointer && Input.IsKeyPressed(Key.Alt)) blocked |= ShellBlock.Input | ShellBlock.Pointer;
             SimulationPaused = (blocked & ShellBlock.Simulation) != 0 || GetTree().Paused;
             InputAllowed = Ready && !ApplicationExit.IsQuitting && !SimulationPaused && (blocked & ShellBlock.Input) == 0;
             if (GodotObject.IsInstanceValid(simulation)) simulation.ProcessMode = SimulationPaused ? ProcessModeEnum.Disabled : ProcessModeEnum.Pausable;
@@ -75,6 +76,11 @@ namespace Cthangover.Mods.Interface.Shell
             return false;
         }
         public override void _Process(double delta) => Refresh();
+        /// <summary>Releases the pointer before GUI dispatch when Alt changes, without consuming the UI event.</summary>
+        public override void _Input(InputEvent input)
+        {
+            if (CapturePointer && input is InputEventKey key && (key.Keycode == Key.Alt || key.PhysicalKeycode == Key.Alt)) Refresh();
+        }
         public override void _ExitTree()
         {
             Ready = false; claims.Clear();
