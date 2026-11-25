@@ -5,6 +5,7 @@ namespace Cthangover.Mods.Interface.Tool
     using System.Text.Json.Nodes;
     using System.Threading;
     using System.Threading.Tasks;
+    using Cthangover.Core.Localization;
     using Cthangover.Core.Mods.HotReload;
     using Cthangover.Core.UI.Tool;
     using Godot;
@@ -24,6 +25,7 @@ namespace Cthangover.Mods.Interface.Tool
             {
                 var tool = context.Request["tool"]?.GetValue<string>() ?? (id == null ? null : ToolDraftCache.Inspect(id)["tool_id"]?.GetValue<string>());
                 var provider = ToolFactory.Instance.Get(tool) ?? throw new ArgumentException("Tool provider not found: " + tool);
+                LocaleLoader.LoadLocale(TranslationServer.GetLocale());
                 var opened = ToolWindow.ShowWindow(provider.CreateWindow()); provider = null;
                 var openedPath = opened.GetPath().ToString();
                 if (command == "tool.open") { opened = null; context.MarkChanged(); return new JsonObject { ["path"] = openedPath, ["tool"] = tool }; }

@@ -69,3 +69,7 @@ notify "The journal has a new entry."
 1. **A toolbar button is missing.** The mod that adds it is not part of this game; check the game's scheme in **Mods & Collections**.
 2. **Save is greyed out.** The current scene does not allow saving; move to another place and try again. Authors allow it with `save_allowed: true` in the header of one of the scene's scenarios.
 3. **A panel opens but is empty.** The panel's mod has nothing to show yet in this game — for example, no quests have started.
+
+## Tool draft cache for live replacement
+
+The stable `ui_base` development provider supplies `tool.open` and `tool.draft.capture/suspend/inspect/restore/reopen`. Named controls map by stable ID; an optional `IToolDraftState` adapter preserves canonical documents and pending asset bytes without retaining editor objects or collectible assembly types. Restore reports unmapped IDs together with their original values and reasons. The temporary cache is not a save to the source mod. See the [verified flowering-editor protocol](../../../site/docs/core/debug-host.md#replace-a-tool-window-with-its-draft-intact).
